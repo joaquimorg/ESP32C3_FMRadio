@@ -1,5 +1,7 @@
 # ESP32-C3 FM Radio (Si4703 + OLED SSD1306)
 
+[Português](README.md) | [English](README.en.md)
+
 Rádio FM controlado por um **ESP32-C3**, com módulo **Si4703**, ecrã **OLED SSD1306 128×64** e 4 botões físicos. Inclui RDS (nome da estação + RadioText), memórias (presets) persistentes, proteção de ecrã e ecrã de apresentação.
 
 ---
