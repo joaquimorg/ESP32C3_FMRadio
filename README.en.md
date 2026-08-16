@@ -16,8 +16,15 @@ FM radio controlled by an **ESP32-C3**, with a **Si4703** module, **OLED SSD1306
 | Button 2 | `GPIO6` | active **LOW** |
 | Button 3 | `GPIO7` | active **LOW** |
 | Button 4 | `GPIO8` | active **LOW** |
+| Audio source select | `GPIO0` | `LOW` = Bluetooth, `HIGH` = FM (configurable) |
+| Amplifier CTRL force | `GPIO1` | `LOW` = released, `HIGH` = FM active (configurable) |
 
 The I2C bus is initialized **only once** (by the radio, when enabled). Buttons connect to GND and use the internal pull-up.
+
+The ESP32, OLED, and Si4703 are powered by external USB 5 V. The original
+KALLSUP JL7016C8, Bluetooth, battery, and charging circuitry remain independent.
+The audio switch and isolated `CTRL` OR logic should include resistors that hold
+Bluetooth selected and the amplifier force disabled while the ESP32 is in reset.
 
 ### Wiring diagram
 
@@ -61,15 +68,23 @@ Libraries (in [`platformio.ini`](platformio.ini)): Adafruit GFX, Adafruit SSD130
 
 ## Startup
 
-1. **Splash** screen for 5 seconds with a progress bar.
-2. Loads presets and the last frequency/volume from NVS.
-3. Enters the **Main** screen.
+1. Immediately selects **Bluetooth** and releases the amplifier control.
+2. Loads presets and the last frequency/volume from NVS, initializing the Si4703 muted.
+3. Shows the **splash** for 5 seconds and enters the **Bluetooth** screen.
+
+The audio mode is never restored from NVS: every boot starts in Bluetooth.
+The last FM frequency, volume, and presets are still restored.
 
 ---
 
 ## Screens and buttons
 
 Buttons **1-4** are physical; the display only shows each button function in the bottom bar. The pressed button cell is **inverted**.
+
+### Bluetooth
+
+Shows only `BLUETOOTH`, `IKEA KALLSUP`, and `FM` in the first bottom cell.
+Button 1 enters FM radio; buttons 2–4 have no function in this mode.
 
 ### 1. Main (radio playback)
 
@@ -132,6 +147,7 @@ Icons (the selected one is inverted):
 | Star | PRESETS | Presets |
 | Speaker | VOLUME | Volume |
 | Search | SCAN | Scan |
+| Bluetooth | BLUETOOTH | Original Bluetooth source |
 | Info | ABOUT | Information |
 
 | Button | Function |
@@ -149,7 +165,9 @@ Confirmations (for example: "STATION SAVED"). Any button returns to the previous
 
 After **30 s** idle on the Main screen, the screen saver starts: station name + frequency drift slowly, with RDS scrolling at the bottom. The **first press** on any button only restores the full screen and does not execute the button function.
 
-On other screens, after **30 s** without button input, it automatically returns to **Main**. The exception is the **Scan** screen while automatic scan is running.
+On other screens, after **30 s** without button input, it returns to the current
+source's home screen. The Bluetooth screen remains active. The exception is the
+**Scan** screen while automatic scan is running.
 
 ---
 
@@ -184,6 +202,7 @@ python tools/generate_docs_assets.py
 | [`src/icons.h`](src/icons.h) | Icons (16x16 bitmaps) |
 | [`src/radio_state.h`](src/radio_state.h) | Radio state, screens, and preset list |
 | [`src/radio_hw.h`](src/radio_hw.h) / [`src/radio_hw.cpp`](src/radio_hw.cpp) | Si4703 control + RDS |
+| [`src/audio_control.h`](src/audio_control.h) / [`src/audio_control.cpp`](src/audio_control.cpp) | Audio switch and isolated amplifier CTRL force |
 | [`src/storage.h`](src/storage.h) / [`src/storage.cpp`](src/storage.cpp) | Preset and setting persistence (NVS) |
 | [`include/config.h`](include/config.h) | Pins and parameters (FM, volume, `RADIO_ENABLED`) |
 
@@ -198,6 +217,8 @@ python tools/generate_docs_assets.py
 | Volume | 0 - 30 |
 | RSSI bars | 0 - 5 (thresholds `{8,16,26,36,44}` in [`radio_hw.cpp`](src/radio_hw.cpp)) |
 | Presets | 20 (5 pages of 4) |
+| Audio select / AMP CTRL | GPIO0 / GPIO1, configurable polarities |
+| Anti-pop delays | mute 20 ms, AMP 30 ms, switch 15 ms |
 | Screen saver timeout | 30 s |
 | Timeout to return to Main | 30 s (except while automatic scan is running) |
 | Long press duration | 600 ms |

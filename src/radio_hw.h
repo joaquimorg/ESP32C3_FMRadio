@@ -7,6 +7,8 @@
 namespace radiohw {
 bool begin(RadioState &st);          // reset + init + banda FM + freq/vol iniciais
 void tune(const RadioState &st);     // aplica st.freq ao chip (limpa RDS antigo)
+void prepareOutput(const RadioState &st);  // volume correto, mantendo mute
+void setMuted(bool muted);           // mute fisico, sem alterar o estado logico
 void applyVolume(const RadioState &st);  // aplica volume + mute
 void applyMono(const RadioState &st);    // aplica modo mono/stereo
 void seekUp(RadioState &st);         // procura automatica para cima

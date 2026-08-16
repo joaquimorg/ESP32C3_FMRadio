@@ -51,7 +51,7 @@ bool begin(RadioState &st) {
   radio.setBandFrequency(RADIO_BAND_FM, mhzToUnits(st.freq));
   radio.setMono(!st.stereo);
   radio.setVolume((int8_t)(st.volume * 15 / VOL_MAX));
-  radio.setMute(st.muted);
+  radio.setMute(true);  // o arranque e sempre em Bluetooth
 
   // RDS
   radio.attachReceiveRDS(onRDS);
@@ -66,6 +66,13 @@ void tune(const RadioState &st) {
   if (g_st) { g_st->ps[0] = '\0'; g_st->rds[0] = '\0'; }
   radio.setFrequency(mhzToUnits(st.freq));
 }
+
+void prepareOutput(const RadioState &st) {
+  radio.setMute(true);
+  radio.setVolume((int8_t)(st.volume * 15 / VOL_MAX));
+}
+
+void setMuted(bool muted) { radio.setMute(muted); }
 
 void applyVolume(const RadioState &st) {
   radio.setVolume((int8_t)(st.volume * 15 / VOL_MAX));

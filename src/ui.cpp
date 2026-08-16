@@ -1,5 +1,5 @@
 // ui.cpp
-// Desenho dos 7 ecras do radio FM sobre o SSD1306 128x64.
+// Desenho dos ecras FM/Bluetooth sobre o SSD1306 128x64.
 //
 // Nota: a fonte por defeito da Adafruit GFX nao tem acentos, por isso o
 // texto e escrito em ASCII (RADIO, OPCOES, ESTACAO, ...).
@@ -221,6 +221,16 @@ static void drawIcon(Adafruit_SSD1306 &d, const unsigned char *bmp, int cx,
   d.drawBitmap(cx - 8, cy - 8, bmp, 16, 16, color);
 }
 
+// Simbolo Bluetooth compacto, desenhado em vetor para nao criar outro bitmap.
+static void drawBluetoothIcon(Adafruit_SSD1306 &d, int cx, int cy,
+                              uint16_t color) {
+  d.drawLine(cx, cy - 8, cx, cy + 8, color);
+  d.drawLine(cx, cy - 8, cx + 6, cy - 3, color);
+  d.drawLine(cx + 6, cy - 3, cx - 5, cy + 5, color);
+  d.drawLine(cx - 5, cy - 5, cx + 6, cy + 3, color);
+  d.drawLine(cx + 6, cy + 3, cx, cy + 8, color);
+}
+
 // ===========================================================================
 //  ECRAS
 // ===========================================================================
@@ -379,20 +389,23 @@ static void drawScan(Adafruit_SSD1306 &d, const RadioState &st) {
 
 // 6. Menu principal
 static void drawMenu(Adafruit_SSD1306 &d, const RadioState &st) {
-  const char *labels[5] = {"RADIO", "PRESETS", "VOLUME", "SCAN", "SOBRE"};
-  const int n = 5;
-  const int cellW = SCREEN_WIDTH / n;  // 25
+  const char *labels[6] = {"RADIO", "PRESETS", "VOLUME", "SCAN",
+                           "BLUETOOTH", "SOBRE"};
+  const int n = 6;
+  const int cellW = SCREEN_WIDTH / n;
   const int iconCY = 22;
   for (int i = 0; i < n; i++) {
     int cx = i * cellW + cellW / 2;
     bool sel = (i == st.menuCursor);
-    const unsigned char *icons[5] = {ic_radio, ic_star, ic_speaker, ic_search,
-                                     ic_info};
+    const unsigned char *icons[6] = {ic_radio, ic_star, ic_speaker, ic_search,
+                                     nullptr, ic_info};
     if (sel) {  // selecionado: caixa a branco com o icone invertido (preto)
       d.fillRoundRect(i * cellW + 1, 4, cellW - 2, 32, 3, SSD1306_WHITE);
-      drawIcon(d, icons[i], cx, iconCY, SSD1306_BLACK);
+      if (i == 4) drawBluetoothIcon(d, cx, iconCY, SSD1306_BLACK);
+      else drawIcon(d, icons[i], cx, iconCY, SSD1306_BLACK);
     } else {
-      drawIcon(d, icons[i], cx, iconCY, SSD1306_WHITE);
+      if (i == 4) drawBluetoothIcon(d, cx, iconCY, SSD1306_WHITE);
+      else drawIcon(d, icons[i], cx, iconCY, SSD1306_WHITE);
     }
   }
   // So a legenda do item selecionado, centrada (evita sobreposicao de textos).
@@ -461,6 +474,14 @@ static void drawSaver(Adafruit_SSD1306 &d, const RadioState &st) {
   drawScrollingText(d, rds, rdsY, 0, SCREEN_WIDTH);
 }
 
+// Fonte Bluetooth original do KALLSUP. O ESP32 nao tenta inferir pairing,
+// volume ou metadata porque nao comunica com o JL7016C8.
+static void drawBluetooth(Adafruit_SSD1306 &d) {
+  printCentered(d, "BLUETOOTH", 15, 2);
+  printCentered(d, "IKEA KALLSUP", 38, 1);
+  drawButtonBar(d, "FM", "", "", "");
+}
+
 // Ecra de apresentacao (splash) com barra de carregamento animada.
 void splash(Adafruit_SSD1306 &d, float progress) {
   if (progress < 0) progress = 0;
@@ -509,6 +530,7 @@ void render(Adafruit_SSD1306 &display, Screen screen, const RadioState &st) {
     case SCREEN_MENU:    drawMenu(display, st); break;
     case SCREEN_MESSAGE: drawMessage(display, st); break;
     case SCREEN_SAVER:   drawSaver(display, st); break;
+    case SCREEN_BLUETOOTH: drawBluetooth(display); break;
   }
   display.display();
 }

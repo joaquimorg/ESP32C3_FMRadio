@@ -11,12 +11,13 @@
 #include "ui.h"
 #include "storage.h"
 #include "radio_hw.h"
+#include "audio_control.h"
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 RadioState state;
-Screen screen = SCREEN_MAIN;
-Screen returnScreen = SCREEN_MAIN;  // ecra para onde voltar apos uma mensagem
+Screen screen = SCREEN_BLUETOOTH;
+Screen returnScreen = SCREEN_BLUETOOTH;  // ecra para onde voltar apos mensagem
 bool radioPresent = false;          // Si4703 detetado no arranque
 
 // Estado anterior aplicado ao chip, para detetar alteracoes a aplicar.
@@ -26,7 +27,7 @@ bool gPm = false;
 bool gDirty = false;
 unsigned long gChangeT = 0;
 
-// Inatividade: no principal entra no protetor; noutros ecras volta ao principal.
+// Inatividade: em FM usa o protetor; outros ecras voltam a fonte atual.
 constexpr unsigned long SAVER_TIMEOUT_MS = 30000;
 unsigned long lastActivity = 0;
 
@@ -42,6 +43,10 @@ unsigned long btnStart[4] = {0, 0, 0, 0};
 unsigned long btnChange[4] = {0, 0, 0, 0};
 
 // --- Helpers de estado ------------------------------------------------------
+Screen homeScreen() {
+  return state.audioMode == AudioMode::FM ? SCREEN_MAIN : SCREEN_BLUETOOTH;
+}
+
 void changeFreq(float delta) {
   state.freq += delta;
   if (state.freq < FM_MIN) state.freq = FM_MAX;
@@ -52,7 +57,7 @@ void changeFreq(float delta) {
 // Procura a proxima estacao (usa o seek do chip; senao avanca um passo).
 // Marca a frequencia como ja aplicada para nao re-sintonizar no loop.
 void doSeek() {
-  if (RADIO_ENABLED) {
+  if (radioPresent && state.audioMode == AudioMode::FM) {
     radiohw::seekUp(state);
     gPf = state.freq;
     state.currentPreset = -1;
@@ -136,7 +141,7 @@ uint8_t asNudge = 0;        // passos finos ja dados na estacao atual
 void autoScanStop() { state.autoScan = false; }
 
 void autoScanStart() {
-  if (!RADIO_ENABLED) {
+  if (!radioPresent || state.audioMode != AudioMode::FM) {
     showMessage("SCAN AUTO", "radio desativado", "");
     return;
   }
@@ -151,7 +156,7 @@ void autoScanStart() {
   state.autoScan = true;
   state.freq = FM_MIN;       // comeca no inicio da banda
   gPf = state.freq;          // o seek parte daqui
-  if (RADIO_ENABLED) radiohw::tune(state);
+  radiohw::tune(state);
   asPhase = AS_SEEK;
   asT = millis();
 }
@@ -219,9 +224,56 @@ void autoScanStep() {
   }
 }
 
+// Unico ponto de transicao entre as fontes de audio.
+void setAudioMode(AudioMode mode) {
+  if (mode == AudioMode::FM) {
+    if (!radioPresent) {
+      audioctrl::selectBluetoothAudio();
+      audioctrl::disableFmAmplifier();
+      state.audioMode = AudioMode::BLUETOOTH;
+      screen = SCREEN_BLUETOOTH;
+      showMessage("FM INDISPONIVEL", "Si4703 nao encontrado", "Bluetooth ativo");
+      return;
+    }
+
+    autoScanStop();
+    radiohw::setMuted(true);
+    radiohw::tune(state);           // ultima frequencia carregada da NVS
+    radiohw::prepareOutput(state);  // volume certo, ainda em mute
+    audioctrl::enableFmAmplifier();
+    delay(FM_AMP_SETTLE_MS);
+    audioctrl::selectFmAudio();
+    delay(AUDIO_SWITCH_SETTLE_MS);
+    radiohw::setMuted(state.muted);
+
+    state.audioMode = AudioMode::FM;
+    screen = SCREEN_MAIN;
+    gPf = state.freq;
+    gPv = state.volume;
+    gPm = state.muted;
+  } else {
+    autoScanStop();
+    if (radioPresent) {
+      radiohw::setMuted(true);
+      delay(FM_MUTE_SETTLE_MS);
+    }
+    audioctrl::selectBluetoothAudio();
+    delay(AUDIO_SWITCH_SETTLE_MS);
+    audioctrl::disableFmAmplifier();
+
+    state.audioMode = AudioMode::BLUETOOTH;
+    screen = SCREEN_BLUETOOTH;
+  }
+  lastActivity = millis();
+}
+
 // --- Maquina de estados da navegacao ---------------------------------------
 void handleButton(uint8_t b) {
   switch (screen) {
+    case SCREEN_BLUETOOTH:
+      if (b == 1) setAudioMode(AudioMode::FM);
+      break;
+
     case SCREEN_MAIN:
       if (b == 1) changeFreq(-FM_STEP);
       else if (b == 2) changeFreq(+FM_STEP);
@@ -274,17 +326,18 @@ void handleButton(uint8_t b) {
       break;
 
     case SCREEN_MENU:
-      if (b == 1) state.menuCursor = (state.menuCursor + 4) % 5;  // <
-      else if (b == 2) state.menuCursor = (state.menuCursor + 1) % 5;  // >
+      if (b == 1) state.menuCursor = (state.menuCursor + 5) % 6;  // <
+      else if (b == 2) state.menuCursor = (state.menuCursor + 1) % 6;  // >
       else if (b == 3) {  // OK
         switch (state.menuCursor) {
           case 0: screen = SCREEN_MAIN; break;
           case 1: openPresets(); break;
           case 2: screen = SCREEN_VOLUME; break;
-          case 3: screen = SCREEN_SCAN; break;   // OPCOES -> Scan
-          case 4: showMessage("FM RADIO v0.1", "ESP32-C3 + Si4703", "OLED 128x64"); break;
+          case 3: screen = SCREEN_SCAN; break;
+          case 4: setAudioMode(AudioMode::BLUETOOTH); break;
+          case 5: showMessage("FM RADIO v0.1", "ESP32-C3 + Si4703", "OLED 128x64"); break;
         }
-      } else if (b == 4) screen = SCREEN_MAIN;  // SAIR
+      } else if (b == 4) screen = homeScreen();  // SAIR
       break;
 
     case SCREEN_MESSAGE:
@@ -339,6 +392,9 @@ void processButtons() {
 }
 
 void setup() {
+  // Primeira acao de hardware: fonte BT selecionada e forca do AMP inativa.
+  audioctrl::beginSafe();
+
   Serial.begin(115200);
   for (int i = 0; i < 4; i++) pinMode(BTN_PINS[i], INPUT_PULLUP);
 
@@ -372,8 +428,8 @@ void setup() {
   }
 
   randomSeed(esp_random());  // para a deriva do protetor de ecra
-  lastActivity = millis();
-  Serial.println(F("FM Radio pronto."));
+  setAudioMode(AudioMode::BLUETOOTH);
+  Serial.println(F("KALLSUP pronto em modo Bluetooth."));
 }
 
 void loop() {
@@ -384,30 +440,34 @@ void loop() {
   for (int i = 0; i < 4; i++)
     if (btnDown[i]) { state.pressedBtn = i + 1; break; }
 
-  // Inatividade: principal -> protetor; outros ecras -> principal.
+  // Inatividade: principal FM -> protetor; outros ecras -> ecra da fonte.
   // Excecao: durante o scan automatico, o ecra de scan permanece ativo.
   bool autoScanScreen = (screen == SCREEN_SCAN && state.autoScan);
-  if (screen == SCREEN_MAIN && millis() - lastActivity > SAVER_TIMEOUT_MS) {
+  if (state.audioMode == AudioMode::FM && screen == SCREEN_MAIN &&
+      millis() - lastActivity > SAVER_TIMEOUT_MS) {
     screen = SCREEN_SAVER;
-  } else if (screen != SCREEN_SAVER && screen != SCREEN_MAIN && !autoScanScreen &&
+  } else if (screen != SCREEN_SAVER && screen != homeScreen() && !autoScanScreen &&
              millis() - lastActivity > SAVER_TIMEOUT_MS) {
-    screen = SCREEN_MAIN;
+    screen = homeScreen();
   }
 
   // Aplica alteracoes ao Si4703 e persiste definicoes.
-  if (state.freq != gPf) {
-    if (RADIO_ENABLED) radiohw::tune(state);
-    gPf = state.freq; gDirty = true; gChangeT = millis();
+  if (state.audioMode == AudioMode::FM && radioPresent) {
+    if (state.freq != gPf) {
+      radiohw::tune(state);
+      gPf = state.freq; gDirty = true; gChangeT = millis();
+    }
+    if (state.volume != gPv || state.muted != gPm) {
+      radiohw::applyVolume(state);
+      gPv = state.volume; gPm = state.muted; gDirty = true; gChangeT = millis();
+    }
+    radiohw::poll(state);  // RDS + RSSI/stereo
+    autoScanStep();        // scan automatico (se ativo)
   }
-  if (state.volume != gPv || state.muted != gPm) {
-    if (RADIO_ENABLED) radiohw::applyVolume(state);
-    gPv = state.volume; gPm = state.muted; gDirty = true; gChangeT = millis();
-  }
-  if (RADIO_ENABLED) radiohw::poll(state);  // RDS + RSSI/stereo
-  autoScanStep();                           // scan automatico (se ativo)
 
   // Memoria sem nome a tocar: assim que o RDS dá o nome, atualiza e grava.
-  if (!state.autoScan && state.currentPreset >= 0 && !isBlank(state.ps)) {
+  if (state.audioMode == AudioMode::FM && !state.autoScan &&
+      state.currentPreset >= 0 && !isBlank(state.ps)) {
     Preset &p = presets[state.currentPreset];
     if (isBlank(p.name)) {
       copyTrim(p.name, sizeof(p.name), state.ps);

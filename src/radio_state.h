@@ -5,7 +5,12 @@
 #include <Arduino.h>
 #include "config.h"
 
-// Ecras disponiveis (corresponde aos 7 ecras do mockup).
+enum class AudioMode : uint8_t {
+  BLUETOOTH,
+  FM
+};
+
+// Ecras disponiveis.
 enum Screen : uint8_t {
   SCREEN_MAIN = 0,   // 1. Ecra principal (radio em reproducao)
   SCREEN_TUNE,       // 2. Sintonia / ajuste de frequencia
@@ -14,7 +19,8 @@ enum Screen : uint8_t {
   SCREEN_SCAN,       // 5. Scan (procura automatica)
   SCREEN_MENU,       // 6. Menu principal
   SCREEN_MESSAGE,    // 7. Mensagem / informacao
-  SCREEN_SAVER       // protecao de ecra (anti burn-in) do ecra principal
+  SCREEN_SAVER,      // protecao de ecra (anti burn-in) do ecra principal
+  SCREEN_BLUETOOTH   // fonte original do IKEA KALLSUP
 };
 
 struct Preset {
@@ -23,6 +29,7 @@ struct Preset {
 };
 
 struct RadioState {
+  AudioMode audioMode = AudioMode::BLUETOOTH;  // nunca e restaurado da NVS
   float freq = 101.20f;     // frequencia atual (MHz)
   uint8_t volume = 14;      // 0..VOL_MAX
   uint8_t rssi = 0;         // 0..RSSI_BARS (barras preenchidas)

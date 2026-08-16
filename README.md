@@ -16,8 +16,15 @@ Rádio FM controlado por um **ESP32-C3**, com módulo **Si4703**, ecrã **OLED S
 | Botão 2 | `GPIO6` | ativo em **LOW** |
 | Botão 3 | `GPIO7` | ativo em **LOW** |
 | Botão 4 | `GPIO8` | ativo em **LOW** |
+| Seleção de áudio | `GPIO0` | `LOW` = Bluetooth, `HIGH` = FM (configurável) |
+| Força CTRL do amplificador | `GPIO1` | `LOW` = libertado, `HIGH` = FM ativo (configurável) |
 
 O barramento I2C é inicializado **uma única vez** (pelo rádio, quando ativo). Os botões ligam a GND e usam o pull-up interno.
+
+O ESP32, OLED e Si4703 são alimentados pelos 5 V do USB externo. O JL7016C8,
+Bluetooth, bateria e carregamento originais do KALLSUP permanecem independentes.
+O switch de áudio e a lógica OR isolada do `CTRL` devem ter resistores que
+garantam Bluetooth selecionado e força do amplificador desativada durante reset.
 
 ### Esquema de ligações
 
@@ -58,15 +65,23 @@ Bibliotecas (em [`platformio.ini`](platformio.ini)): Adafruit GFX, Adafruit SSD1
 
 ## Arranque
 
-1. **Splash** (ecrã de apresentação) durante 5 segundos com barra de progresso.
-2. Carrega as memórias e a última frequência/volume da NVS.
-3. Entra no **ecrã Principal**.
+1. Seleciona imediatamente **Bluetooth** e liberta o controlo do amplificador.
+2. Carrega presets e a última frequência/volume da NVS e inicializa o Si4703 em mute.
+3. Mostra o **splash** durante 5 segundos e entra no ecrã **Bluetooth**.
+
+O modo de áudio nunca é restaurado da NVS: cada arranque começa em Bluetooth.
+A última frequência FM, volume e presets continuam a ser restaurados.
 
 ---
 
 ## Ecrãs e botões
 
 Os botões **1–4** são físicos; o ecrã mostra apenas a função de cada um na barra inferior. A célula do botão premido fica **invertida**.
+
+### Bluetooth
+
+Mostra apenas `BLUETOOTH`, `IKEA KALLSUP` e `FM` na primeira célula inferior.
+O botão 1 entra no rádio FM; os botões 2–4 não têm função neste modo.
 
 ### 1. Principal (rádio em reprodução)
 Mostra o nome da estação (RDS) ou a frequência, RSSI, stereo/mono, preset atual e o RadioText (RDS) em scroll.
@@ -124,6 +139,7 @@ Lista vertical com número, frequência e nome. A linha selecionada fica inverti
 | ★ | PRESETS | Presets |
 | 🔊 | VOLUME | Volume |
 | 🔍 | SCAN | Scan |
+| Bluetooth | BLUETOOTH | Fonte Bluetooth original |
 | ℹ | SOBRE | Informação |
 
 | Botão | Função |
@@ -139,7 +155,9 @@ Confirmações (ex.: "ESTAÇÃO GUARDADA"). Qualquer botão volta ao ecrã anter
 ### Proteção de ecrã (anti burn-in)
 Ao fim de **30 s** parado no Principal, entra no protetor: nome + frequência a derivar lentamente e o RDS em scroll no fundo. O **primeiro toque** em qualquer botão apenas repõe o ecrã completo (não executa a função).
 
-Nos outros ecrãs, ao fim de **30 s** sem botões, volta automaticamente ao **Principal**. A exceção é o ecrã de **Scan** enquanto o scan automático estiver em curso.
+Nos outros ecrãs, ao fim de **30 s** sem botões, volta ao ecrã principal da
+fonte atual. O ecrã Bluetooth permanece ativo. A exceção é o ecrã de **Scan**
+enquanto o scan automático estiver em curso.
 
 ---
 
@@ -174,6 +192,7 @@ python tools/generate_docs_assets.py
 | [`src/icons.h`](src/icons.h) | Ícones (bitmaps 16×16) |
 | [`src/radio_state.h`](src/radio_state.h) | Estado do rádio, ecrãs e lista de presets |
 | [`src/radio_hw.h`](src/radio_hw.h) / [`src/radio_hw.cpp`](src/radio_hw.cpp) | Controlo do Si4703 + RDS |
+| [`src/audio_control.h`](src/audio_control.h) / [`src/audio_control.cpp`](src/audio_control.cpp) | Switch de áudio e força isolada do CTRL do amplificador |
 | [`src/storage.h`](src/storage.h) / [`src/storage.cpp`](src/storage.cpp) | Persistência (NVS) das memórias e definições |
 | [`include/config.h`](include/config.h) | Pinos e parâmetros (FM, volume, `RADIO_ENABLED`) |
 
@@ -188,6 +207,8 @@ python tools/generate_docs_assets.py
 | Volume | 0 – 30 |
 | Barras RSSI | 0 – 5 (limiares `{8,16,26,36,44}` em [`radio_hw.cpp`](src/radio_hw.cpp)) |
 | Memórias | 20 (5 páginas de 4) |
+| Seleção de áudio / AMP CTRL | GPIO0 / GPIO1, polaridades configuráveis |
+| Tempos anti-pop | mute 20 ms, AMP 30 ms, switch 15 ms |
 | Timeout do protetor de ecrã | 30 s |
 | Timeout para voltar ao Principal | 30 s (exceto scan automático em curso) |
 | Duração do toque longo | 600 ms |
