@@ -6,13 +6,17 @@
 /// (BSD style license, http://www.mathertel.de/License.aspx).
 ///
 /// Alteracoes locais (descodificacao do RadioText, grupo 2A) face ao original:
-///   * Verificacao de cada segmento de 4 chars: so e dado como fiavel depois de
-///     ser recebido 2x igual (reduz lixo de erros de bit), a semelhanca do que o
-///     original ja fazia para o nome da estacao (PS).
-///   * So entrega o texto quando esta COMPLETO (todos os segmentos necessarios
-///     confirmados), em vez de entregar o buffer parcial em cada "volta" do indice.
-///   * Respeita o terminador 0x0D (fim de mensagem), evitando a cauda de lixo de
-///     uma mensagem anterior mais longa.
+///   * Entrega o texto de forma PROGRESSIVA: sempre que um segmento novo (ou
+///     corrigido) chega, envia logo o prefixo contiguo confirmado, em vez de
+///     esperar pelos 16 segmentos - a estacao pode nunca os enviar todos (ex.
+///     mensagens curtas sem terminador), o que atrasava a exibicao para
+///     sempre. O ecra so mostra o que ja e fiavel (nunca inventa caracteres).
+///   * Respeita o terminador 0x0D (fim de mensagem) para cortar a cauda de
+///     lixo de uma mensagem anterior mais longa.
+///   * Confia na filtragem de erros do proprio chip (BLER por bloco, ver
+///     radio_hw.cpp) em vez de exigir 2 leituras seguidas iguais por
+///     segmento - isso duplicava o tempo de espera, porque cada segmento so
+///     se repete uma vez por ciclo completo da mensagem (varios segundos).
 ///
 
 #ifndef __RDSPARSERLOCAL_H__
@@ -66,7 +70,6 @@ private:
   // ----- RadioText (grupo 2A) -----
   char     _RDSText[64 + 2];   // buffer da mensagem (max 64 chars + terminador)
   uint16_t _rdsTextRcv;        // bitmask: 1 bit por segmento (0..15) ja recebido
-  bool     _rdsTextDone;       // mensagem completa atual ja entregue ao callback
 
 };  // RDSParserLocal
 

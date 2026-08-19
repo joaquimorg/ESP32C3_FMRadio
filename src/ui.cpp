@@ -112,22 +112,106 @@ static void drawRadioTopBar(Adafruit_SSD1306 &d, const RadioState &st,
   d.drawFastHLine(0, TOPBAR_SEP, SCREEN_WIDTH, SSD1306_WHITE);
 }
 
-// Texto com scroll horizontal quando excede a largura da janela.
+// Estado persistente de um ticker (fila de textos a percorrer + posicao do
+// scroll). Cada linha com scroll (ecra principal, protetor) tem a sua propria
+// instancia, para nao misturar conteudos entre ecras diferentes.
+struct ScrollState {
+  String        q[4];        // fila FIFO de textos por mostrar
+  uint8_t       qlen = 0;
+  float         scrollX = 0;  // posicao atual do scroll, em px
+  unsigned long lastMs = 0;
+  bool          scrolling = false;  // resultado da ultima chamada
+};
+
+// Verifica se "newT" e uma continuacao valida de "oldT": todos os caracteres
+// nao-espaco de oldT tem de aparecer iguais em newT na mesma posicao (com
+// sinal fraco, o RDS preenche por posicao - segmentos ainda nao confirmados
+// ficam como espaco e podem ser preenchidos mais tarde, fora de ordem).
+static bool rdsTextCompatible(const String &oldT, const String &newT) {
+  if (newT.length() < oldT.length()) return false;
+  for (unsigned i = 0; i < oldT.length(); i++) {
+    char o = oldT[i];
+    if (o != ' ' && o != newT[i]) return false;
+  }
+  return true;
+}
+
+// Texto com scroll horizontal quando excede a largura da janela. Quando o
+// texto muda a meio do scroll, o texto novo e adicionado ao FIM da fila em
+// vez de substituir o atual - a mensagem antiga continua a deslizar e so e
+// descartada quando ja saiu completamente de vista, sem nenhum salto visual.
 static void drawScrollingText(Adafruit_SSD1306 &d, const char *txt, int y,
-                              int x0, int w) {
+                              int x0, int w, ScrollState &s) {
   d.setTextSize(1);
-  int textW = (int)strlen(txt) * 6;
-  if (textW <= w) {  // cabe: centra, sem scroll
-    printCenteredIn(d, txt, x0, x0 + w, y, 1);
+  const int gap = 16;    // espaco (px) entre mensagens consecutivas
+  const int charW = 6;
+
+  // Enfileira o texto novo, se ainda nao for o ultimo pedido (evita repetir
+  // o mesmo texto em cada frame enquanto a estacao nao o atualiza). O RDS
+  // entrega o RadioText de forma progressiva e pode preencher buracos fora
+  // de ordem - se o novo texto e uma continuacao compativel do que ja esta
+  // na fila, e a MESMA mensagem a crescer: atualiza-se no lugar em vez de
+  // empilhar uma entrada nova, para o scroll nao saltar a cada atualizacao.
+  if (txt[0] != '\0' && (s.qlen == 0 || s.q[s.qlen - 1] != txt)) {
+    if (s.qlen > 0 && rdsTextCompatible(s.q[s.qlen - 1], String(txt))) {
+      s.q[s.qlen - 1] = txt;
+    } else if (s.qlen < 4) {
+      s.q[s.qlen++] = txt;
+    }
+  }
+
+  if (s.qlen == 0) { s.scrolling = false; return; }
+
+  int firstW = s.q[0].length() * charW;
+
+  // So 1 mensagem em fila e cabe no espaco: sem scroll. Alinhado a esquerda
+  // (nao centrado) porque o RDS entrega o texto progressivamente - centrar
+  // faria o texto saltar de posicao a cada letra nova, enquanto cresce perto
+  // da largura da janela.
+  if (s.qlen == 1 && firstW <= w) {
+    d.setCursor(x0, y);
+    d.print(s.q[0]);
+    s.scrollX = 0;
+    s.lastMs = 0;
+    s.scrolling = false;
     return;
   }
-  const int gap = 16;            // espaco entre repeticoes
-  int period = textW + gap;
-  int off = (int)((millis() / 50) % period);  // velocidade do scroll
-  d.setCursor(x0 - off, y);
-  d.print(txt);
-  d.setCursor(x0 - off + period, y);  // copia para wrap-around continuo
-  d.print(txt);
+  s.scrolling = true;
+
+  // Avanca o scroll a velocidade constante (independente da framerate).
+  unsigned long now = millis();
+  if (s.lastMs == 0) s.lastMs = now;
+  float dt = (now - s.lastMs) / 1000.0f;
+  if (dt > 0.2f) dt = 0.2f;  // evita saltos apos uma pausa longa (troca de ecra)
+  s.lastMs = now;
+  s.scrollX += dt * 20.0f;  // ~1px/50ms, igual a velocidade original
+
+  // Quando a 1a mensagem sai completamente de vista: se ja ha outra a
+  // seguir, descarta-a e continua o scroll a partir da proxima (sem salto,
+  // porque so removemos o que ja nao era visivel); senao, mantem-na (loop).
+  int firstPeriod = firstW + gap;
+  while (s.scrollX >= firstPeriod) {
+    s.scrollX -= firstPeriod;
+    if (s.qlen > 1) {
+      for (uint8_t i = 1; i < s.qlen; i++) s.q[i - 1] = s.q[i];
+      s.qlen--;
+    }
+    firstW = s.q[0].length() * charW;
+    firstPeriod = firstW + gap;
+  }
+
+  // Desenha a fila em sequencia; se so houver 1 mensagem, desenha uma copia
+  // extra a seguir para o loop ficar continuo (mesmo truque de sempre).
+  int cum = 0;
+  for (uint8_t i = 0; i < s.qlen; i++) {
+    d.setCursor(x0 - (int)s.scrollX + cum, y);
+    d.print(s.q[i]);
+    cum += (int)s.q[i].length() * charW + gap;
+  }
+  if (s.qlen == 1) {
+    d.setCursor(x0 - (int)s.scrollX + cum, y);
+    d.print(s.q[0]);
+  }
 }
 
 // Frequencia em grande + "MHz", opcionalmente com setas laterais.
@@ -254,8 +338,9 @@ static void drawMain(Adafruit_SSD1306 &d, const RadioState &st) {
   }
 
   // Linha de RDS RadioText com scroll, no espaco antes da barra de botoes.
-  const char *rds = (st.rds[0] != '\0') ? st.rds : "RDS ---";
-  drawScrollingText(d, rds, 44, 0, SCREEN_WIDTH);
+  // Sem RDS, deixa o espaco em branco em vez de mostrar um texto de preenchimento.
+  static ScrollState mainRdsScroll;
+  if (st.rds[0] != '\0') drawScrollingText(d, st.rds, 44, 0, SCREEN_WIDTH, mainRdsScroll);
 
   drawButtonBar(d, "1 -", "2 +", "3 VOL", "4 PRE");
 }
@@ -425,12 +510,16 @@ static void drawMessage(Adafruit_SSD1306 &d, const RadioState &st) {
   drawButtonBar(d, "1 <", "2 >", "3 OK", "4 SAI");
 }
 
-// Protecao de ecra: nome + frequencia a derivar lentamente (anti burn-in),
-// com o RDS a fazer scroll no fundo. Reposicoes suaves para novos pontos.
+// Protecao de ecra: nome + frequencia (ou "BLUETOOTH" fora do FM) a derivar
+// lentamente (anti burn-in), com o RDS a fazer scroll no fundo.
+// Reposicoes suaves para novos pontos.
 static void drawSaver(Adafruit_SSD1306 &d, const RadioState &st) {
-  char freq[10];
-  snprintf(freq, sizeof(freq), "%.2f", st.freq);  // sem "MHz" p/ ser estreito
-  bool hasName = (st.ps[0] != '\0');
+  bool isFM = (st.audioMode == AudioMode::FM);
+
+  char freq[12];
+  if (isFM) snprintf(freq, sizeof(freq), "%.2f", st.freq);  // sem "MHz" p/ ser estreito
+  else strcpy(freq, "BLUETOOTH");
+  bool hasName = isFM && (st.ps[0] != '\0');
   int nameW = hasName ? (int)strlen(st.ps) * 6 : 0;
   int freqW = (int)strlen(freq) * 12;             // size 2
   int blockW = (nameW > freqW) ? nameW : freqW;
@@ -470,8 +559,13 @@ static void drawSaver(Adafruit_SSD1306 &d, const RadioState &st) {
     d.print(freq);
   }
 
-  const char *rds = (st.rds[0] != '\0') ? st.rds : "RDS ---";
-  drawScrollingText(d, rds, rdsY, 0, SCREEN_WIDTH);
+  // Sem RDS, deixa o espaco em branco em vez de mostrar um texto de preenchimento.
+  // Quando o texto cabe no ecra (ex.: "IKEA KALLSUP") fica parado, sem scroll
+  // nem deriva - o bloco nome/frequencia acima ja e responsavel pela deriva
+  // anti burn-in desta zona do ecra.
+  static ScrollState saverRdsScroll;
+  const char *rds = isFM ? st.rds : "IKEA KALLSUP";
+  if (rds[0] != '\0') drawScrollingText(d, rds, rdsY, 0, SCREEN_WIDTH, saverRdsScroll);
 }
 
 // Fonte Bluetooth original do KALLSUP. O ESP32 nao tenta inferir pairing,

@@ -19,9 +19,8 @@ void RDSParserLocal::init() {
   strcpy(_PSName3, "33333333");
   strcpy(programServiceName, "        ");
   strcpy(lastServiceName, "        ");
-  memset(_RDSText, 0, sizeof(_RDSText));
-  _rdsTextRcv  = 0;
-  _rdsTextDone = false;
+  memset(_RDSText, ' ', sizeof(_RDSText));  // espaco = segmento ainda por receber
+  _rdsTextRcv = 0;
 }  // init()
 
 
@@ -108,55 +107,60 @@ void RDSParserLocal::processData(uint16_t block1, uint16_t block2, uint16_t bloc
       _textAB = (block2 & 0x0010);
       uint8_t seg = block2 & 0x000F;   // numero do segmento (0..15)
       idx = 4 * seg;                   // posicao no buffer (0,4,...,60)
+      uint16_t bit = (uint16_t)(1u << seg);
 
       // Quando o bit A/B alterna, a mensagem mudou -> recomecar do zero.
       if (_textAB != _last_textAB) {
         _last_textAB = _textAB;
-        memset(_RDSText, 0, sizeof(_RDSText));
-        _rdsTextRcv  = 0;
-        _rdsTextDone = false;
+        memset(_RDSText, ' ', sizeof(_RDSText));
+        _rdsTextRcv = 0;
       }
 
-      // Grava os 4 novos chars (2 do bloco 3, 2 do bloco 4) e marca o segmento.
-      // Se o conteudo mudou, a mensagem deixa de estar "entregue" -> permite
-      // reenviar a versao nova (cobre estacoes que nao alternam o bit A/B).
+      // Aceita o segmento logo que chega - o chip ja rejeitou os blocos
+      // irrecuperaveis antes disto chegar aqui (ver pollSI4703RDS em
+      // radio_hw.cpp). So ha algo para mostrar se o conteudo mudou ou se
+      // este segmento ainda nao tinha sido recebido nesta mensagem.
+      bool changed = false;
       {
         char nt[4] = { (char)(block3 >> 8), (char)(block3 & 0x00FF),
                        (char)(block4 >> 8), (char)(block4 & 0x00FF) };
         if (memcmp(&_RDSText[idx], nt, 4) != 0) {
           memcpy(&_RDSText[idx], nt, 4);
-          _rdsTextDone = false;
+          changed = true;
         }
       }
-      _rdsTextRcv |= (uint16_t)(1u << seg);
+      if (!(_rdsTextRcv & bit)) { _rdsTextRcv |= bit; changed = true; }
+      if (!changed) break;
 
-      // Numero de segmentos CONTIGUOS recebidos a partir do inicio.
-      uint8_t nSeg = 0;
-      while (nSeg < 16 && (_rdsTextRcv & (uint16_t)(1u << nSeg))) nSeg++;
-      uint8_t avail = nSeg * 4;
+      // Com sinal fraco os grupos 2A chegam muito espacados e fora de ordem
+      // (ex.: segmento 10, depois 5, depois 2...). Exigir contiguidade a
+      // partir do segmento 0 fazia com que quase nunca se mostrasse nada.
+      // Em vez disso: usa o segmento mais alto ja visto como comprimento, e
+      // os segmentos por confirmar ficam como espaco (' ', ver o memset
+      // acima) - o texto aparece logo com o 1o grupo recebido e vai
+      // preenchendo os buracos a medida que mais segmentos chegam.
+      uint8_t maxSeg = 0;
+      for (uint8_t i = 0; i < 16; i++)
+        if (_rdsTextRcv & (uint16_t)(1u << i)) maxSeg = i;
+      uint8_t avail = (maxSeg + 1) * 4;
 
-      // Procura o terminador 0x0D dentro da zona contigua ja recebida.
-      bool    hasTerm = false;
-      uint8_t outLen  = avail;
+      // Procura o terminador 0x0D num segmento CONFIRMADO (nunca aparece nos
+      // espacos de preenchimento) dentro da zona ja conhecida.
+      uint8_t outLen = avail;
       for (uint8_t i = 0; i < avail; i++) {
-        if (_RDSText[i] == '\r') { outLen = i; hasTerm = true; break; }
+        if ((_rdsTextRcv & (uint16_t)(1u << (i / 4))) && _RDSText[i] == '\r') {
+          outLen = i;
+          break;
+        }
+      }
+      if (outLen == 64) {  // os 16 segmentos, sem terminador: corta espacos finais
+        while (outLen > 0 && _RDSText[outLen - 1] == ' ') outLen--;
       }
 
-      // A mensagem esta COMPLETA quando: temos tudo ate ao terminador 0x0D, OU
-      // recebemos os 16 segmentos (mensagem de 64 chars sem terminador). So
-      // entao a entregamos - nunca mostramos prefixos parciais.
-      bool complete = hasTerm || (_rdsTextRcv == 0xFFFF);
-      if (complete && !_rdsTextDone) {
-        if (!hasTerm) {                       // 64 chars: corta espacos finais
-          outLen = 64;
-          while (outLen > 0 && _RDSText[outLen - 1] == ' ') outLen--;
-        }
-        char out[65];
-        memcpy(out, _RDSText, outLen);
-        out[outLen] = '\0';
-        _rdsTextDone = true;
-        if (_sendText) _sendText(out);
-      }
+      char out[65];
+      memcpy(out, _RDSText, outLen);
+      out[outLen] = '\0';
+      if (_sendText) _sendText(out);
       break;
     }
 

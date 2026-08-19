@@ -382,7 +382,7 @@ void processButtons() {
       btnLong[i] = false;
       lastActivity = now;
       if (screen == SCREEN_SAVER) {   // 1o toque so sai do protetor de ecra
-        screen = SCREEN_MAIN;
+        screen = homeScreen();
         btnLong[i] = true;            // consome (nao dispara curto na soltura)
       }
     } else {                          // soltura: se nao foi longo, e curto
@@ -440,11 +440,11 @@ void loop() {
   for (int i = 0; i < 4; i++)
     if (btnDown[i]) { state.pressedBtn = i + 1; break; }
 
-  // Inatividade: principal FM -> protetor; outros ecras -> ecra da fonte.
-  // Excecao: durante o scan automatico, o ecra de scan permanece ativo.
+  // Inatividade: ecra da fonte atual (FM ou Bluetooth) -> protetor; outros
+  // ecras -> ecra da fonte. Excecao: durante o scan automatico, o ecra de
+  // scan permanece ativo.
   bool autoScanScreen = (screen == SCREEN_SCAN && state.autoScan);
-  if (state.audioMode == AudioMode::FM && screen == SCREEN_MAIN &&
-      millis() - lastActivity > SAVER_TIMEOUT_MS) {
+  if (screen == homeScreen() && millis() - lastActivity > SAVER_TIMEOUT_MS) {
     screen = SCREEN_SAVER;
   } else if (screen != SCREEN_SAVER && screen != homeScreen() && !autoScanScreen &&
              millis() - lastActivity > SAVER_TIMEOUT_MS) {
