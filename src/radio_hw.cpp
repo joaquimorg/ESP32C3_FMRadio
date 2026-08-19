@@ -5,10 +5,10 @@
 #include <Wire.h>
 #include <math.h>
 #include <SI4703.h>
-#include <RDSParser.h>
+#include "RDSParserLocal.h"
 
 static SI4703 radio;
-static RDSParser rdsParser;
+static RDSParserLocal rdsParser;
 static RadioState *g_st = nullptr;
 
 // Frequencia em unidades de 10 kHz usadas pela biblioteca (101.20 MHz -> 10120).
