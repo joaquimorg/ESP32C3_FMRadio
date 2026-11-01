@@ -173,6 +173,49 @@ python tools/generate_docs_assets.py
 
 ---
 
+## Construção e resultado final
+
+O rádio foi montado dentro de uma coluna Bluetooth **IKEA KALLSUP**, aproveitando a caixa, o altifalante e o amplificador originais.
+
+### Desmontagem e análise da placa original
+
+| | |
+|---|---|
+| ![PCB original, face dos componentes](docs/kallsup/PXL_20260815_133246740.MP.jpg) | ![PCB original, face inferior com conectores](docs/kallsup/PXL_20260815_133259234.MP.jpg) |
+| Face superior da PCB: módulo Bluetooth, amplificador ANT8817 com indutor, botões S1/S2 e LED | Face inferior: pads USB/bateria, conector do altifalante e condensadores de 470 µF |
+
+![Interior da caixa com o altifalante](docs/kallsup/PXL_20260815_213130602.MP.jpg)
+
+*Interior da caixa e altifalante original.*
+
+### Modificação do amplificador
+
+O pino `CTRL` do ANT8817 é usado para o ESP32 forçar o amplificador quando o modo FM está ativo (ver [Hardware](#hardware)).
+
+![Esquema típico de aplicação do ANT8817](docs/kallsup/ANT8817.png)
+
+*Circuito típico do ANT8817 (datasheet), com o pino CTRL (2) e as entradas INN/INP.*
+
+| | |
+|---|---|
+| ![Detalhe da zona do amplificador e do conector USB](docs/kallsup/PXL_20260815_213144909.MACRO_FOCUS.MP.jpg) | ![Fios soldados à PCB original](docs/kallsup/PXL_20260816_140603910.MP.jpg) |
+| Pormenor da zona do amplificador, onde são feitas as ligações | Fios soldados à PCB original para o áudio FM e o controlo |
+
+### Montagem eletrónica
+
+![Montagem interior com ESP32-C3, Si4703 e PCB original](docs/kallsup/PXL_20260816_210102846.MP.jpg)
+
+*ESP32-C3, módulo Si4703 e a PCB original do KALLSUP dentro da caixa, ligados por fios.*
+
+### Resultado final
+
+| | | |
+|---|---|---|
+| ![Rádio em funcionamento com o OLED a mostrar a estação](docs/kallsup/PXL_20260816_210042774.MACRO_FOCUS.MP.jpg) | ![Coluna com o OLED montado no topo, vista frontal](docs/PXL_20261101_142229821.MP.jpg) | ![Coluna com o OLED montado no topo, vista lateral](docs/PXL_20261101_142240159.MP.jpg) |
+| Rádio em funcionamento, com RDS no OLED | Vista frontal, grelha do altifalante | Vista lateral, furos dos botões |
+
+---
+
 ## Memórias (presets)
 
 - **20 memórias** (5 páginas de 4), guardadas na flash (NVS) — sobrevivem a reinícios.

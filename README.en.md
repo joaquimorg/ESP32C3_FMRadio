@@ -183,6 +183,49 @@ python tools/generate_docs_assets.py
 
 ---
 
+## Build and final result
+
+The radio was built inside an **IKEA KALLSUP** Bluetooth speaker, reusing its enclosure, speaker and original amplifier.
+
+### Teardown and analysis of the original board
+
+| | |
+|---|---|
+| ![Original PCB, component side](docs/kallsup/PXL_20260815_133246740.MP.jpg) | ![Original PCB, underside with connectors](docs/kallsup/PXL_20260815_133259234.MP.jpg) |
+| Top of the PCB: Bluetooth module, ANT8817 amplifier with inductor, buttons S1/S2 and LED | Underside: USB/battery pads, speaker connector and 470 µF capacitors |
+
+![Inside of the enclosure with the speaker](docs/kallsup/PXL_20260815_213130602.MP.jpg)
+
+*Inside of the enclosure and the original speaker.*
+
+### Amplifier modification
+
+The ANT8817 `CTRL` pin is used so the ESP32 can force the amplifier on when FM mode is active (see [Hardware](#hardware)).
+
+![ANT8817 typical application circuit](docs/kallsup/ANT8817.png)
+
+*ANT8817 typical circuit (datasheet), showing the CTRL pin (2) and the INN/INP inputs.*
+
+| | |
+|---|---|
+| ![Close-up of the amplifier area and USB connector](docs/kallsup/PXL_20260815_213144909.MACRO_FOCUS.MP.jpg) | ![Wires soldered to the original PCB](docs/kallsup/PXL_20260816_140603910.MP.jpg) |
+| Close-up of the amplifier area, where the connections are made | Wires soldered to the original PCB for FM audio and control |
+
+### Electronics assembly
+
+![Interior assembly with ESP32-C3, Si4703 and the original PCB](docs/kallsup/PXL_20260816_210102846.MP.jpg)
+
+*ESP32-C3, Si4703 module and the original KALLSUP PCB inside the enclosure, wired together.*
+
+### Final result
+
+| | | |
+|---|---|---|
+| ![Radio running with RDS on the OLED](docs/kallsup/PXL_20260816_210042774.MACRO_FOCUS.MP.jpg) | ![Speaker with the OLED mounted on top, front view](docs/PXL_20261101_142229821.MP.jpg) | ![Speaker with the OLED mounted on top, side view](docs/PXL_20261101_142240159.MP.jpg) |
+| Radio running, with RDS on the OLED | Front view, speaker grille | Side view, button holes |
+
+---
+
 ## Presets
 
 - **20 presets** (5 pages of 4), saved to flash (NVS), and retained across restarts.
